@@ -1,0 +1,713 @@
+---
+title: "Using Fingertips data in R"
+output:
+  html_document:
+    df_print: paged
+---
+
+# {.tabset}
+
+## Introduction
+
+This document walks through how to use the [FingertipsR](https://github.com/ropensci/fingertipsR) and [FingertipsCharts](https://github.com/ukhsa-collaboration/fingertipscharts) packages in R. 
+
+Firstly, you must install fingertipsR as so:
+
+```{r message=FALSE, warning=FALSE}
+remotes::install_github("rOpenSci/fingertipsR",
+                        build_vignettes = TRUE,
+                        dependencies = "suggests")
+```
+
+You must also install Fingertipscharts as so:
+
+```{r message=FALSE, warning=FALSE}
+remotes::install_github("ukhsa-collaboration/fingertipscharts",
+                        build_vignettes = TRUE)
+```
+
+Once you have installed the above packages, you can start using the API to pull data into R dataframes. The below example shows how to use the fingertips_data() function - the main function you will use to get data - for 'Mortality rate from all causes, all ages' for counties and UAs. 
+
+The 'Inidicator IDs' and 'Area Types' tabs show the lists of indicator names and corresponding IDs and area type names and IDs.
+
+NB: for counties/UAs you should use: **402 Upper tier local authorities (4/21-3/23)**. This is because the new areas do not have mappings to regions.
+
+
+```{r}
+library(fingertipsR)
+
+indicator_id <- 219
+df <- fingertips_data(IndicatorID = indicator_id, AreaTypeID = 402)
+
+head(df)
+```
+
+## Indicator IDs
+
+When using the function on the first tab, you must pass in IndicatorID (NB you can pass in multiple indicator IDs as a list). 
+
+All metrics in Fingertips have a corresponding ID. This can be found on the description page for each indicator e.g. https://fingertips.phe.org.uk/profile/mortality-profile/data#page/6/gid/1938133009/pat/159/par/K02000001/ati/15/are/E92000001/iid/93823/age/1/sex/4/cat/-1/ctp/-1/yrr/1/cid/4/tbm/1
+ 
+The below table gives a list of indicators and their corresponding IDs. You can use the search bar in the table to search for keywords to find relevant indicators.
+
+```{r echo = FALSE}
+library(DT)
+
+inds <- indicators()
+inds$IndicatorName <- substr(inds$IndicatorName, start = 1, stop = 200)
+inds <- inds[order(inds$IndicatorID), ]
+inds <- inds[c("IndicatorID", "IndicatorName")]
+inds <- inds[!duplicated(inds$IndicatorID), ]
+
+datatable(inds, options = list(pageLength = 20),rownames = FALSE)
+```
+ 
+## Area Types
+
+The below table shows the possible area types for each indicator. Use the search function to identify the relevant area types for the indicator you are interested in.
+
+NB: for counties/UAs you should use: **402 Upper tier local authorities (4/21-3/23)**. This is because the new areas do not have mappings to regions.
+ 
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, echo=FALSE}
+library(fingertipsR)
+library(DT)
+library(dplyr)
+
+indicator_id <- 93763
+
+areas <- area_types()
+areas <- areas[c("AreaTypeID", "AreaTypeName")]
+areas <- areas[!duplicated(areas$AreaTypeID), ]
+
+df <- indicator_areatypes()
+
+df <- df %>%
+  left_join(areas, by = "AreaTypeID")
+
+datatable(df,rownames = FALSE)
+```
+ 
+## Population Charts
+
+This tab shows how to build a population pyramid. This code can be used for any county/UA by changing the region and areaname inputs.
+
+The list below shows different options of counties/UAs by region.
+
+NB: for counties/UAs you should use: **402 Upper tier local authorities (4/21-3/23)**. This is because the new areas do not have mappings to regions.
+
+#### List of counties/UAs by Region {.tabset} 
+
+```{r, results='asis',echo=FALSE}
+library(DT)
+ua_df <- fingertips_data(IndicatorID = 92708,
+                         AreaTypeID = 402)
+
+ua_df_regions <- ua_df %>% 
+  filter(ParentName == "England") %>%
+  select(AreaCode, AreaName) %>%
+  distinct() %>%
+  mutate(AreaName = gsub(" \\(statistical\\)$", "", AreaName))
+
+ua_df <- ua_df %>% 
+  filter(ParentName != "England" & !is.na(ParentName)) %>%
+  select(AreaCode, AreaName, ParentCode) %>%
+  distinct()
+
+areas_df <- ua_df %>%
+  left_join(ua_df_regions, by = c("ParentCode" = "AreaCode"))
+areas_df <- areas_df %>%
+  rename(AreaName = AreaName.x,
+         Region = AreaName.y) %>%
+  mutate(AreaName = gsub(" \\(statistical\\)$", "", AreaName))
+
+tabs <- sort(unique(ua_df_regions$AreaName))
+
+for (tab in tabs) {
+  cat(paste0("##### ", tab, "\n\n"))
+  table_df_filt <- areas_df %>% filter(Region == tab)
+  cat(knitr::kable(
+    data.frame(`Area Name` = table_df_filt$AreaName),
+    format = "html",
+    row.names = FALSE
+  ))
+  cat("\n\n") 
+}
+
+```
+
+### Population Chart
+
+Here is the code you can use to build your population chart, inputting the area name and region from the above lists.
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(fingertipsR)
+library(forcats)
+library(tidyverse)
+library(fingertipscharts)
+
+
+pop_data <- fingertips_data(IndicatorID = 92708,
+                            AreaTypeID = 402)
+
+#select area name (use table above to choose) and corresponding region. Region must be in this exact format e.g. "South East region" or "North West region"
+region <- "North West region"
+areaname <- "Manchester"
+year = "2022"
+
+pops <- pop_data %>% 
+  filter(Age != "All ages",
+         Sex %in% c("Male", "Female"),
+         Timeperiod == year,
+         AreaName %in% c("England", areaname, paste(region,"(statistical)"))) %>% 
+  mutate(Age = factor(Age, 
+                      levels = c("0-4 yrs", "5-9 yrs", "10-14 yrs", 
+                                 "15-19 yrs", "20-24 yrs", "25-29 yrs",
+                                 "30-34 yrs", "35-39 yrs", "40-44 yrs",
+                                 "45-49 yrs", "50-54 yrs", "55-59 yrs",
+                                 "60-64 yrs", "65-69 yrs", "70-74 yrs",
+                                 "75-79 yrs", "80-84 yrs", "85-89 yrs", 
+                                 "90+ yrs"))) %>%
+  mutate(AreaName = gsub(" \\(statistical\\)$", "", AreaName))
+
+
+chart_title <- paste("Age Profile of", areaname)
+
+p <- population(data = pops,
+                value = Value,
+                sex = Sex,
+                age = Age,
+                area = AreaName,
+                area_name = areaname,
+                comparator_1 = region,
+                comparator_2 = "England",
+                title = chart_title,
+                subtitle = year,
+                xlab = "% of total population")
+p
+```
+
+
+## Comparing Area Charts
+To determine the area types available, use the 'Area Types' tab. Once you have decided which area type to use, this bit of code will be able to identify areas within this type.
+
+The most commonly used area types for our purposes will be **counties and UAs**, **ICBs** or **sub-ICBs** so the below gives you tables with area names for these options.
+
+NB: for counties/UAs you should use: **402 Upper tier local authorities (4/21-3/23)**. This is because the new areas do not have mappings to regions.
+
+### Area Names & Codes {.tabset}
+
+#### Counties & UAs
+```{r echo=FALSE}
+library(DT)
+
+ua_df <- fingertips_data(IndicatorID = 212,
+                         AreaTypeID = 402)
+
+ua_df_regions <- ua_df %>% 
+  filter(ParentName == "England") %>%
+  select(AreaCode, AreaName) %>%
+  distinct() %>%
+  mutate(AreaName = gsub(" \\(statistical\\)$", "", AreaName))
+
+ua_df <- ua_df %>% 
+  filter(ParentName != "England" & !is.na(ParentName)) %>%
+  select(AreaCode, AreaName, ParentCode) %>%
+  distinct()
+
+areas_df <- ua_df %>%
+  left_join(ua_df_regions, by = c("ParentCode" = "AreaCode"))
+areas_df <- areas_df %>%
+  rename(AreaName = AreaName.x,
+         Region = AreaName.y) %>%
+  mutate(AreaName = gsub(" \\(statistical\\)$", "", AreaName))
+
+datatable(areas_df)
+```
+
+#### ICBs
+```{r, echo=FALSE}
+library(DT)
+
+icb_df <- fingertips_data(IndicatorID = 212,
+                         AreaTypeID = 221)
+
+icb_df_regions <- icb_df %>% 
+  filter(ParentName == "England") %>%
+  select(AreaCode, AreaName) %>%
+  distinct()
+
+icb_df <- icb_df %>% 
+  filter(ParentName != "England" & !is.na(ParentName)) %>%
+  select(AreaCode, AreaName, ParentCode) %>%
+  distinct()
+
+icb_df <- icb_df %>%
+  left_join(icb_df_regions, by = c("ParentCode" = "AreaCode"))
+icb_df <- icb_df %>%
+  rename(AreaName = AreaName.x,
+         Region = AreaName.y) 
+
+datatable(icb_df)
+```
+
+#### Sub-ICBs
+```{r, echo=FALSE}
+library(DT)
+sicb_df <- fingertips_data(IndicatorID = 212,
+                         AreaTypeID = 66)
+
+sicb_df_regions <- sicb_df %>% 
+  filter(ParentName == "England") %>%
+  select(AreaCode, AreaName) %>%
+  distinct()
+
+sicb_df <- sicb_df %>% 
+  filter(ParentName != "England" & !is.na(ParentName)) %>%
+  select(AreaCode, AreaName, ParentCode) %>%
+  distinct()
+
+sicb_df <- sicb_df %>%
+  left_join(sicb_df_regions, by = c("ParentCode" = "AreaCode"))
+sicb_df <- sicb_df %>%
+  rename(AreaName = AreaName.x,
+         Region = AreaName.y) 
+
+datatable(sicb_df)
+
+```
+
+
+### Code for plot
+
+In the below code, input the ParentCode of an area you wish to compare. 
+
+E.g. 1. if you want to compare how 'Brent' (the county/UA) performs against the other areas in it's region: in the above table, search for 'Brent' in the Counties & UAs tab and copy the ParentCode 'E12000007'. 
+
+E.g. 2. if you want to compare how the sub-ICB 'Greater Manchester ICB - 01G' performs against the other sub-ICBs in its ICB: in the above table, search for 'Greater Manchester ICB - 01G' in the Sub-ICB tab and copy the ParentCode 'nE54000057'. 
+
+Run the code below to output the possible sexes and ages of your selected indicator which you need to use to decide what to filter by (if applicable, in some cases you will just have to use 'Persons' and 'All Ages').
+
+```{r}
+library(dplyr)
+library(fingertipsR)
+library(fingertipscharts)
+
+# input relevant code into region and ID of the indicator
+region <- "E12000006"
+indicatorid <- 91102
+
+if (startsWith(region, "nE54")) {
+ areatype <- 66 
+} else if (startsWith(region, "E4")) {
+  areatype <- 221
+} else {
+  areatype <- 402
+}
+
+top_names <- c("E92000001", region)
+df <- fingertips_data(IndicatorID = indicatorid,
+                      AreaTypeID = areatype) %>%
+  filter(ParentCode == region |
+           AreaCode %in% top_names)
+
+df <- df %>%
+  filter(TimeperiodSortable == max(TimeperiodSortable))
+
+ordered_levels <- c("Better",
+                    "Higher",
+                    "Similar", 
+                    "Worse",
+                    "Lower",
+                    "Not compared")
+
+if (startsWith(region, "nE54")) {
+  df <- df %>%
+    mutate(`ComparedtoICBsvalueorpercentiles` = ifelse(is.na(`ComparedtoICBsvalueorpercentiles`), `ComparedtoICBsvalueorpercentiles`, gsub(" 99.8", "", `ComparedtoICBsvalueorpercentiles`))) %>%
+    mutate(`ComparedtoICBsvalueorpercentiles` = 
+           factor(`ComparedtoICBsvalueorpercentiles`,
+                  levels = ordered_levels))
+} else if (startsWith(region, "E4")) {
+  df <- df %>%
+    mutate(`ComparedtoNHSregions(sinceICBsetup)valueorpercentiles` = ifelse(is.na(`ComparedtoNHSregions(sinceICBsetup)valueorpercentiles`), `ComparedtoNHSregions(sinceICBsetup)valueorpercentiles`, gsub(" 99.8", "", `ComparedtoNHSregions(sinceICBsetup)valueorpercentiles`))) %>%
+    mutate(`ComparedtoNHSregions(sinceICBsetup)valueorpercentiles` = 
+           factor(`ComparedtoNHSregions(sinceICBsetup)valueorpercentiles`,
+                  levels = ordered_levels))
+} else {
+  df <- df %>%
+    mutate(`ComparedtoRegions(statistical)valueorpercentiles` = 
+             factor(`ComparedtoRegions(statistical)valueorpercentiles`,
+                    levels = ordered_levels))} 
+
+df_outputs <- df %>%
+  distinct(AreaType, Sex, Age)
+
+print(df_outputs)
+```
+
+Using the filters you require, this code generates the chart.
+
+NB is the only option is 'Persons' and 'All Ages' this **must still be inputted** as the sex and age variables.
+
+```{r}
+#filter sex and age as per the above table
+sex = "Female"
+age = "65"
+
+df <- df %>%
+  filter(Age == age,
+         Sex == sex)
+
+df <- df %>%
+  mutate(AreaName = factor(AreaName, levels = c(top_names, setdiff(unique(AreaName), top_names))))
+
+if (startsWith(region, "nE54")) {
+  p <- compare_areas(df,
+                     AreaName, 
+                     Value,
+                     fill = `ComparedtoICBsvalueorpercentiles`,
+                     lowerci = LowerCI95.0limit,
+                     upperci = UpperCI95.0limit,
+                     order = "desc",
+                     top_areas = top_names,
+                     title = paste(unique(df$IndicatorName)," for ",sex," and ",age))
+} else if (startsWith(region, "E4")) {
+  p <- compare_areas(df,
+                     AreaName, 
+                     Value,
+                     fill = `ComparedtoNHSregions(sinceICBsetup)valueorpercentiles`,
+                     lowerci = LowerCI95.0limit,
+                     upperci = UpperCI95.0limit,
+                     order = "desc",
+                     top_areas = top_names,
+                     title = paste(unique(df$IndicatorName)," for ",sex," and ",age))
+} else {p <- compare_areas(df,
+                           AreaName, 
+                           Value,
+                           fill = `ComparedtoRegions(statistical)valueorpercentiles`,
+                           lowerci = LowerCI95.0limit,
+                           upperci = UpperCI95.0limit,
+                           order = "desc",
+                           top_areas = top_names,
+                           title = paste(unique(df$IndicatorName)," for ",sex," and ",age))}
+p
+```
+
+## Indicator Trend Charts
+
+To determine the area types available, use the 'Area Types' tab. Once you have decided which area type to use, this bit of code will be able to identify areas within this type.
+
+The most commonly used area types for our purposes will be **counties and UAs**, **ICBs** or **sub-ICBs** so the below gives you tables with area names for these options.
+
+NB: for counties/UAs you should use: **402 Upper tier local authorities (4/21-3/23)**. This is because the new areas do not have mappings to regions.
+
+### Area Names & Codes {.tabset}
+
+#### Counties & UAs
+```{r echo=FALSE}
+library(DT)
+
+ua_df <- fingertips_data(IndicatorID = 212,
+                         AreaTypeID = 402)
+
+ua_df_regions <- ua_df %>% 
+  filter(ParentName == "England") %>%
+  select(AreaCode, AreaName) %>%
+  distinct() %>%
+  mutate(AreaName = gsub(" \\(statistical\\)$", "", AreaName))
+
+ua_df <- ua_df %>% 
+  filter(ParentName != "England" & !is.na(ParentName)) %>%
+  select(AreaCode, AreaName, ParentCode) %>%
+  distinct()
+
+areas_df <- ua_df %>%
+  left_join(ua_df_regions, by = c("ParentCode" = "AreaCode"))
+areas_df <- areas_df %>%
+  rename(AreaName = AreaName.x,
+         Region = AreaName.y) %>%
+  mutate(AreaName = gsub(" \\(statistical\\)$", "", AreaName)) %>%
+  select(-ParentCode)
+
+datatable(areas_df)
+```
+
+#### ICBs
+```{r, echo=FALSE}
+library(DT)
+
+icb_df <- fingertips_data(IndicatorID = 212,
+                         AreaTypeID = 221)
+
+icb_df_regions <- icb_df %>% 
+  filter(ParentName == "England") %>%
+  select(AreaCode, AreaName) %>%
+  distinct()
+
+icb_df <- icb_df %>% 
+  filter(ParentName != "England" & !is.na(ParentName)) %>%
+  select(AreaCode, AreaName, ParentCode) %>%
+  distinct()
+
+icb_df <- icb_df %>%
+  left_join(icb_df_regions, by = c("ParentCode" = "AreaCode"))
+icb_df <- icb_df %>%
+  rename(AreaName = AreaName.x,
+         Region = AreaName.y) %>%
+  select(-ParentCode)
+
+datatable(icb_df)
+```
+
+#### Sub-ICBs
+```{r, echo=FALSE}
+library(DT)
+sicb_df <- fingertips_data(IndicatorID = 212,
+                         AreaTypeID = 66)
+
+sicb_df_regions <- sicb_df %>% 
+  filter(ParentName == "England") %>%
+  select(AreaCode, AreaName) %>%
+  distinct()
+
+sicb_df <- sicb_df %>% 
+  filter(ParentName != "England" & !is.na(ParentName)) %>%
+  select(AreaCode, AreaName, ParentCode) %>%
+  distinct()
+
+sicb_df <- sicb_df %>%
+  left_join(sicb_df_regions, by = c("ParentCode" = "AreaCode"))
+sicb_df <- sicb_df %>%
+  rename(AreaName = AreaName.x,
+         Region = AreaName.y) %>%
+  select(-ParentCode)
+
+datatable(sicb_df)
+
+```
+
+### Code for chart
+From the above table, input the relevant areacode as the area variable.
+
+Also decide in the inputs if you want to compare your area to England or its parent area.
+For counties/UAs, the parent is the region; for ICBs the parents is the NHS region and for sub-ICBs the parent is the ICB). 
+
+NB if you are looking at an ICB, the NHS region boundaries recently changed so it is advised to use England as the comparator.
+
+Run the code below to output the possible sexes and ages of your selected indicator which you need to use to decide what to filter by (if applicable, in some cases you will just have to use 'Persons' and 'All Ages').
+
+```{r}
+library(fingertipsR)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+#input area code from table above; input indicator ID and input comparator (either England or Parent)
+area <- c("nE54000008")
+indicator <- 20601
+comparator <- "England"
+
+# do not change this code
+if (startsWith(area, "nE38") & comparator == "Parent") {
+  areatype <- 66
+  parenttype <- 221
+} else if (startsWith(area, "nE38") & comparator == "England") {
+  areatype <- 66
+  parenttype <- 15
+} else if (startsWith(area, "nE54") & comparator == "Parent") {
+  areatype <- 221
+  parenttype <- 223
+} else if (startsWith(area, "nE54") & comparator == "England") {
+  areatype <- 221
+  parenttype <- 15
+} else {
+  areatype <- 402
+  parenttype <- 221
+}
+
+if (areatype == 402 & comparator == "England") {
+  data_frame <- fingertips_data(IndicatorID = indicator,
+                                AreaTypeID = areatype)
+  data_frame <- data_frame %>%
+    select(TimeperiodSortable,Value,AreaName,AreaCode,LowerCI95.0limit,UpperCI95.0limit,
+           IndicatorName,Timeperiod,ParentName,ParentCode,Sex,Age) %>%
+    filter(is.na(ParentCode) | AreaCode == area)
+} else if (areatype == 402 & comparator == "Parent"){
+  data_frame <- fingertips_data(IndicatorID = indicator,
+                                AreaTypeID = areatype)
+  data_frame <- data_frame %>%
+    select(TimeperiodSortable,Value,AreaName,AreaCode,LowerCI95.0limit,UpperCI95.0limit,
+           IndicatorName,Timeperiod,ParentName,ParentCode,Sex,Age) 
+  parent <- data_frame %>%
+    filter(AreaCode == area) %>%
+    select(ParentCode) %>%
+    unique() %>%
+    pull(ParentCode)
+  data_frame <- data_frame %>%
+    filter(AreaCode == parent | AreaCode == area)
+} else if (comparator == "Parent") {
+  data_frame_1 <- fingertips_data(IndicatorID = indicator,
+                                  AreaTypeID = areatype,
+                                  AreaCode = area)
+  data_frame_1 <- data_frame_1 %>%
+    select(TimeperiodSortable,Value,AreaName,AreaCode,LowerCI95.0limit,UpperCI95.0limit,
+           IndicatorName,Timeperiod,ParentName,ParentCode,Sex,Age)
+  parent <- data_frame_1 %>%
+    select(ParentCode) %>%
+    filter(!is.na(ParentCode)) %>%
+    unique() %>%
+    pull(ParentCode)
+  data_frame_2 <- fingertips_data(IndicatorID = indicator,
+                                  AreaTypeID = parenttype,
+                                  AreaCode = parent)
+  data_frame_2 <- data_frame_2 %>%
+    select(TimeperiodSortable,Value,AreaName,AreaCode,LowerCI95.0limit,UpperCI95.0limit,
+           IndicatorName,Timeperiod,ParentName,ParentCode,Sex,Age)
+  data_frame <- bind_rows(data_frame_1,data_frame_2)
+} else {
+  data_frame_1 <- fingertips_data(IndicatorID = indicator,
+                                  AreaTypeID = areatype,
+                                  AreaCode = area)
+  data_frame_1 <- data_frame_1 %>%
+    select(TimeperiodSortable,Value,AreaName,AreaCode,LowerCI95.0limit,UpperCI95.0limit,
+           IndicatorName,Timeperiod,ParentName,ParentCode,Sex,Age)
+  data_frame_2 <- fingertips_data(IndicatorID = indicator,
+                                  AreaTypeID = 15)
+  data_frame_2 <- data_frame_2 %>%
+    select(TimeperiodSortable,Value,AreaName,AreaCode,LowerCI95.0limit,UpperCI95.0limit,
+           IndicatorName,Timeperiod,ParentName,ParentCode,Sex,Age)
+  data_frame <- bind_rows(data_frame_1,data_frame_2)
+}
+
+data_frame_outputs <- data_frame %>%
+  select(AreaName, Sex, Age) %>%
+  distinct()
+
+datatable(data_frame_outputs)
+```
+
+Using the filters you require, this code generates the chart.
+
+NB is the only option is 'Persons' and 'All Ages' this **must still be inputted** as the sex and age variables.
+
+```{r}
+#filter sex and age as per the above table
+sex = "Persons"
+age = "4-5 yrs"
+
+data_frame <- data_frame %>% 
+  filter(Sex == sex) %>%
+  filter(Age == age)
+
+timeperiod_labels <- unique(data_frame$Timeperiod)
+
+chart_title <- paste(unique(data_frame$IndicatorName),"for ",sex," and ",age)
+
+area_data <- data_frame %>%
+  filter(AreaCode == area)
+
+area_min_year <- min(area_data$TimeperiodSortable)
+area_data_min_year <- area_data %>%
+  filter(TimeperiodSortable >= area_min_year)
+
+min_value_row <- area_data_min_year[which.min(area_data_min_year$Value), ]
+year_for_min_value <- min_value_row$TimeperiodSortable
+
+data_frame <- data_frame %>%
+  filter(TimeperiodSortable >= year_for_min_value)
+
+#plot the trend
+data_frame_chart <- data_frame %>%
+  ggplot(aes(x = TimeperiodSortable, y = Value, colour = AreaName)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = LowerCI95.0limit, 
+                  ymax = UpperCI95.0limit, 
+                  fill = AreaName), 
+              alpha = 0.2, 
+              colour = NA) +
+  geom_point() +
+  labs(y = unique(data_frame$IndicatorName),
+       title = chart_title) +
+  scale_color_discrete(name = data_frame$AreaType) +  
+  scale_fill_discrete(name = data_frame$AreaType) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 0),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        legend.position = "bottom") +
+  scale_x_continuous(name = "Timeperiod",
+                     breaks = unique(data_frame$TimeperiodSortable),
+                     labels = unique(data_frame$Timeperiod))
+
+data_frame_chart
+```
+
+## Choropleths
+
+The code below will produce choropleths for different indicators. The sex and age variables must be specified to filter the dataset appropriately.
+
+Run the code below to output the possible sexes and ages of your selected indicator which you need to use to decide what to filter by (if applicable, in some cases you will just have to use 'Persons' and 'All Ages').
+
+For choropleths, either use the counties/UAs or ICB area type. To determine which area type is applicable, use the Area Types tab. For counties/UAs you should use: **502 Upper tier local authorities (post Apr-23)** to align with the map rather than the pre April-23 counties/UAs. 
+
+```{r}
+#input area type of 502 for counties/UAs or 221 for ICBs
+area_type <- 502
+indiator_id <- 40401
+
+df <- fingertips_data(IndicatorID = indiator_id,
+                      AreaTypeID = area_type) %>%
+  filter(TimeperiodSortable == max(TimeperiodSortable))
+
+df_outputs <- df %>%
+  select(AreaType, Sex, Age) %>%
+  distinct()
+
+datatable(df_outputs)
+```
+
+Using the filters you require, this code generates the choropleth.
+
+NB is the only option is 'Persons' and 'All Ages' this **must still be inputted** as the sex and age variables.
+
+```{r}
+#select Persons, Males or Females
+sex <- "Male"
+age <- "<75 yrs"
+
+df <- df %>% filter(Sex == sex,
+                    Age == age)
+
+if (area_type == 221) {
+  subtitle <- paste(sex, ",", age, "for Integrated Care Boards")
+  ons_api <- "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Integrated_Care_Boards_April_2023_EN_BSC/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson"
+} else if (area_type == 502) {
+  subtitle <- paste(sex, ",", age, "for Counties & UAs")
+  ons_api <- "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Counties_and_Unitary_Authorities_December_2023_Boundaries_UK_BUC/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson"
+} else { 
+  }
+
+ordered_levels <- c("Better",
+                    "Higher",
+                    "Similar", 
+                    "Worse",
+                    "Lower",
+                    "Not compared")
+
+df <- df %>%
+  mutate(ComparedtoEnglandvalueorpercentiles = 
+           factor(ComparedtoEnglandvalueorpercentiles,
+                  levels = ordered_levels)) %>%
+  mutate(AreaCode = sub("^n", "", AreaCode))
+
+title <- df$IndicatorName
+
+p <- fingertipscharts::map(data = df,
+                           ons_api = ons_api,
+                           area_code = AreaCode,
+                           fill = ComparedtoEnglandvalueorpercentiles,
+                           title = title,
+                           subtitle = subtitle,
+                           copyright_size = 1.5)
+p
+```
