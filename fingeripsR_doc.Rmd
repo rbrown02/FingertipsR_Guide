@@ -188,7 +188,7 @@ p
 ```
 
 
-## Comparing Area Charts
+## Comparing Areas
 To determine the area types available, use the 'Area Types' tab. Once you have decided which area type to use, this bit of code will be able to identify areas within this type.
 
 The most commonly used area types for our purposes will be **counties and UAs**, **ICBs** or **sub-ICBs** so the below gives you tables with area names for these options.
@@ -393,7 +393,7 @@ if (startsWith(region, "nE54")) {
 p
 ```
 
-## Indicator Trend Charts
+## Indicator Trends
 
 To determine the area types available, use the 'Area Types' tab. Once you have decided which area type to use, this bit of code will be able to identify areas within this type.
 
